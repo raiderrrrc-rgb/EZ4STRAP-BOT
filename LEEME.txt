@@ -1,0 +1,94 @@
+=====================================================
+  EZ4ME — Setup con Discord Bot (GRATIS y PERMANENTE)
+=====================================================
+
+ESTRUCTURA
+----------
+EZ4ME.sln              <- Abrir en Visual Studio
+EZ4ME/
+  main.cpp             <- FlagGuard + Auth integrado
+  auth.hpp             <- Modulo HWID (cambia el HOST aqui)
+  EZ4ME.vcxproj
+
+bot.py                 <- El bot de Discord (servidor de keys)
+requirements.txt       <- Dependencias Python
+discloud.config        <- Config para Discloud (hosting gratis)
+keys.json              <- Base de datos de keys (se crea solo)
+
+
+=====================================================
+PASO 1 — CREAR EL BOT DE DISCORD
+=====================================================
+
+1. Ve a discord.com/developers/applications
+2. Click "New Application" -> ponle nombre "EZ4ME"
+3. Ve a "Bot" en el menu izquierdo
+4. Click "Reset Token" -> COPIA ESE TOKEN
+5. Activa: MESSAGE CONTENT INTENT
+6. Ve a OAuth2 -> URL Generator
+   Scopes: bot | Permissions: Send Messages, Read Messages, Embed Links
+7. Usa la URL para invitar el bot a TU servidor privado
+
+
+=====================================================
+PASO 2 — CONFIGURAR bot.py
+=====================================================
+
+Cambia estas 3 lineas en bot.py:
+
+   BOT_TOKEN      = "TU_BOT_TOKEN_AQUI"
+   ADMIN_GUILD_ID = ID_DE_TU_SERVIDOR
+   ADMIN_CHANNEL  = ID_DEL_CANAL
+
+Para los IDs: Discord -> Ajustes -> Avanzado -> Modo desarrollador
+Luego click derecho en servidor/canal -> Copiar ID
+
+
+=====================================================
+PASO 3 — SUBIR A DISCLOUD
+=====================================================
+
+1. Ve a discloud.app -> Crea cuenta con Discord
+2. Crea un archivo keys.json vacio con contenido: {}
+3. Haz un ZIP con estos 4 archivos:
+     bot.py
+     requirements.txt
+     discloud.config
+     keys.json
+4. En Discloud -> Apps -> Upload -> sube el ZIP
+5. El bot queda online 24/7 gratis
+6. Discloud te da una URL tipo: tu-app.discloud.app
+
+
+=====================================================
+PASO 4 — PONER LA URL EN auth.hpp
+=====================================================
+
+   #define AUTH_SERVER_HOST  L"tu-app.discloud.app"
+   #define AUTH_SERVER_PORT  8080
+
+
+=====================================================
+PASO 5 — COMPILAR EN VISUAL STUDIO
+=====================================================
+
+1. Abre EZ4ME.sln
+2. Release | x64
+3. Ctrl+Shift+B
+4. El exe queda en EZ4ME\x64\Release\EZ4ME.exe
+
+
+=====================================================
+COMANDOS DEL BOT EN DISCORD
+=====================================================
+
+  !addkey nombre        Crea una key
+  !list                 Ve todas las keys
+  !info XXXX-XXXX       Info de una key especifica
+  !reset XXXX-XXXX      Resetea HWID (si formatea PC)
+  !delete XXXX-XXXX     Elimina una key
+  !ayuda                Lista de comandos
+
+El bot te avisa automaticamente cuando:
+  Alguien ata una key a su PC por primera vez
+  Alguien intenta usar una key desde otro PC (DENIED)
