@@ -23,7 +23,8 @@ import asyncio
 import json
 import secrets
 import os
-from datetime import datetime
+import traceback
+from datetime import datetime, timezone
 from aiohttp import web
 from discord.ext import commands
 
@@ -65,6 +66,9 @@ def generate_key() -> str:
     segments = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(4)]
     return "-".join(segments)
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
 # ============================================================
 #  Bot de Discord
 # ============================================================
@@ -88,7 +92,7 @@ async def addkey(ctx, *, note: str = "sin nombre"):
         "discord_name":    None,
         "awaiting_discord": False,
         "note":            note,
-        "created_at":      datetime.utcnow().isoformat(),
+        "created_at":      now_iso(),
         "bound_at":        None,
         "discord_set_at":  None,
         "last_used":       None,
@@ -100,7 +104,7 @@ async def addkey(ctx, *, note: str = "sin nombre"):
     embed.add_field(name="🔑 Key",    value=f"```{key}```",  inline=False)
     embed.add_field(name="👤 Para",   value=note,            inline=True)
     embed.add_field(name="📊 Estado", value="Sin atar",      inline=True)
-    embed.set_footer(text=f"Creada: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
+    embed.set_footer(text=f"Creada: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
     await ctx.send(embed=embed)
 
 # ---- !list ----
@@ -251,7 +255,7 @@ async def ban_user(ctx, discord_name: str, *, reason: str = "ban manual por admi
     bl[name_lower] = {
         "original_name": discord_name,
         "reason":       reason,
-        "banned_at":    datetime.utcnow().isoformat(),
+        "banned_at":    now_iso(),
         "banned_by":    str(ctx.author)
     }
     save_blacklist(bl)
@@ -312,7 +316,7 @@ async def handle_auth(request: web.Request) -> web.Response:
         return web.json_response({"status": "invalid"})
 
     keys = load_keys()
-    now  = datetime.utcnow().isoformat()
+    now  = now_iso()
 
     if key not in keys:
         print(f"[AUTH] INVALID  key={key}")
@@ -321,7 +325,7 @@ async def handle_auth(request: web.Request) -> web.Response:
     entry = keys[key]
 
     # Primera vez — atar HWID y pedir Discord
-    if entry["hwid"] is None:
+    if entry.get("hwid") is None:
         keys[key]["hwid"]             = hwid
         keys[key]["bound_at"]         = now
         keys[key]["last_used"]        = now
@@ -344,7 +348,7 @@ async def handle_auth(request: web.Request) -> web.Response:
         })
 
     # HWID incorrecto
-    if entry["hwid"] != hwid:
+    if entry.get("hwid") != hwid:
         print(f"[AUTH] DENIED   key={key} tried={hwid}")
         return web.json_response({"status": "denied", "msg": "Esta key pertenece a otro PC"})
 
@@ -376,14 +380,14 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
 
     keys = load_keys()
     bl   = load_blacklist()
-    now  = datetime.utcnow().isoformat()
+    now  = now_iso()
 
     if key not in keys:
         return web.json_response({"status": "invalid"})
 
     entry = keys[key]
 
-    if entry["hwid"] != hwid:
+    if entry.get("hwid") != hwid:
         return web.json_response({"status": "denied"})
 
     # Verificar blacklist
@@ -394,12 +398,19 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
             "msg": "Tu nombre de Discord está en la blacklist de EZ4STRAP."
         })
 
+    # ===== CORRECCION CRITICA =====
     # Verificar nombre duplicado en otras keys
+    # Antes: v.get("discord_name", "").lower()  → crashea si el valor es None
+    # Ahora: (v.get("discord_name") or "").lower() → maneja None correctamente
     duplicate_key = None
     for k, v in keys.items():
-        if k != key and v.get("discord_name", "").lower() == discord_name.lower():
-            duplicate_key = k
-            break
+        if not isinstance(v, dict):
+            continue
+        if k != key:
+            existing = v.get("discord_name")
+            if isinstance(existing, str) and existing.lower() == discord_name.lower():
+                duplicate_key = k
+                break
 
     if duplicate_key:
         # Auto-blacklist
@@ -447,8 +458,20 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
     print(f"[AUTH] DISCORD SET  key={key} discord={discord_name}")
     return web.json_response({"status": "ok", "discord": discord_name})
 
+# ============================================================
+#  Middleware: captura errores 500 y los loguea
+# ============================================================
+@web.middleware
+async def error_middleware(request, handler):
+    try:
+        return await handler(request)
+    except Exception as e:
+        print(f"[ERROR 500] {request.path}: {e}")
+        traceback.print_exc()
+        return web.json_response({"status": "server_error", "detail": str(e)}, status=500)
+
 async def start_http_server():
-    app_http = web.Application()
+    app_http = web.Application(middlewares=[error_middleware])
     app_http.router.add_post("/auth",         handle_auth)
     app_http.router.add_post("/auth/discord", handle_auth_discord)
     runner = web.AppRunner(app_http)
