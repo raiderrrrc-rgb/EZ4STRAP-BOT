@@ -1,3 +1,22 @@
+"""
+EZ4ME — Bot de Discord v2
+==================================================
+Nuevo flujo de autenticacion:
+ 1. Usuario ingresa su KEY en el .exe
+ 2. Usuario ingresa su nombre de Discord
+ 3. Servidor verifica duplicados → blacklist automatica
+
+Comandos (solo en tu canal de admin):
+ !addkey <nota> — Crea una key nueva
+ !list — Lista todas las keys
+ !reset <key> — Resetea HWID + Discord de una key
+ !delete <key> — Elimina una key
+ !info <key> — Info detallada de una key
+ !blacklist — Ver la blacklist
+ !banear <discord_name> [razon] — Agregar a la blacklist manualmente
+ !desbanear <discord_name> — Quitar de la blacklist
+"""
+
 import discord
 import aiohttp
 import asyncio
@@ -9,7 +28,9 @@ from datetime import datetime, timezone
 from aiohttp import web
 from discord.ext import commands
 
-
+# ============================================================
+# CONFIGURA ESTO
+# ============================================================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_GUILD_ID = int(os.environ["ADMIN_GUILD_ID"])
 ADMIN_CHANNEL = int(os.environ["ADMIN_CHANNEL_ID"])
@@ -17,7 +38,9 @@ HTTP_PORT = 8080
 KEYS_FILE = "keys.json"
 BL_FILE = "blacklist.json"
 
-
+# ============================================================
+# Base de datos en JSON
+# ============================================================
 def load_keys() -> dict:
     if os.path.exists(KEYS_FILE):
         with open(KEYS_FILE, "r") as f:
@@ -46,7 +69,9 @@ def generate_key() -> str:
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
+# ============================================================
+# Bot de Discord
+# ============================================================
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -56,7 +81,7 @@ def is_admin_channel():
         return ctx.guild and ctx.guild.id == ADMIN_GUILD_ID and ctx.channel.id == ADMIN_CHANNEL
     return commands.check(predicate)
 
-
+# ---- !addkey <nota> ----
 @bot.command(name="addkey")
 @is_admin_channel()
 async def addkey(ctx, *, note: str = "sin nombre"):
@@ -82,7 +107,7 @@ async def addkey(ctx, *, note: str = "sin nombre"):
     embed.set_footer(text=f"Creada: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
     await ctx.send(embed=embed)
 
-
+# ---- !list ----
 @bot.command(name="list")
 @is_admin_channel()
 async def list_keys(ctx):
@@ -117,7 +142,7 @@ async def list_keys(ctx):
         embed.set_footer(text=f"Mostrando 20 de {len(keys)}. Usa !info <key> para detalles.")
     await ctx.send(embed=embed)
 
-
+# ---- !reset <key> ----
 @bot.command(name="reset")
 @is_admin_channel()
 async def reset_key(ctx, key: str):
@@ -143,7 +168,7 @@ async def reset_key(ctx, key: str):
     embed.add_field(name="Estado", value="La proxima vez que la use, pedira HWID y Discord nuevos.", inline=False)
     await ctx.send(embed=embed)
 
-
+# ---- !delete <key> ----
 @bot.command(name="delete")
 @is_admin_channel()
 async def delete_key(ctx, key: str):
@@ -165,7 +190,7 @@ async def delete_key(ctx, key: str):
     embed.add_field(name="💬 Discord", value=discord, inline=True)
     await ctx.send(embed=embed)
 
-
+# ---- !info <key> ----
 @bot.command(name="info")
 @is_admin_channel()
 async def info_key(ctx, key: str):
@@ -191,7 +216,7 @@ async def info_key(ctx, key: str):
     embed.add_field(name="🔢 Usos", value=str(data.get("use_count", 0)), inline=True)
     await ctx.send(embed=embed)
 
-
+# ---- !blacklist ----
 @bot.command(name="blacklist")
 @is_admin_channel()
 async def show_blacklist(ctx):
@@ -216,7 +241,7 @@ async def show_blacklist(ctx):
         embed.set_footer(text=f"Mostrando 25 de {len(bl)}")
     await ctx.send(embed=embed)
 
-
+# ---- !banear <discord_name> [razon] ----
 @bot.command(name="banear")
 @is_admin_channel()
 async def ban_user(ctx, discord_name: str, *, reason: str = "ban manual por administrador"):
@@ -241,7 +266,7 @@ async def ban_user(ctx, discord_name: str, *, reason: str = "ban manual por admi
     embed.add_field(name="👮 Por", value=str(ctx.author), inline=True)
     await ctx.send(embed=embed)
 
-
+# ---- !desbanear <discord_name> ----
 @bot.command(name="desbanear")
 @is_admin_channel()
 async def unban_user(ctx, discord_name: str):
@@ -260,7 +285,7 @@ async def unban_user(ctx, discord_name: str):
     embed.set_footer(text=f"Removido por {ctx.author}")
     await ctx.send(embed=embed)
 
-
+# ---- !ayuda ----
 @bot.command(name="ayuda")
 @is_admin_channel()
 async def ayuda(ctx):
@@ -275,7 +300,9 @@ async def ayuda(ctx):
     embed.add_field(name="!desbanear <discord_name>", value="Quitar de la blacklist", inline=False)
     await ctx.send(embed=embed)
 
-
+# ============================================================
+# Servidor HTTP — /auth y /auth/discord
+# ============================================================
 async def handle_auth(request: web.Request) -> web.Response:
     try:
         data = await request.json()
@@ -297,7 +324,7 @@ async def handle_auth(request: web.Request) -> web.Response:
 
     entry = keys[key]
 
-
+    # Primera vez — atar HWID y pedir Discord
     if entry.get("hwid") is None:
         keys[key]["hwid"] = hwid
         keys[key]["bound_at"] = now
@@ -320,19 +347,19 @@ async def handle_auth(request: web.Request) -> web.Response:
             "msg": "Key atada. Ahora ingresa tu nombre de Discord."
         })
 
-
+    # HWID incorrecto
     if entry.get("hwid") != hwid:
         print(f"[AUTH] DENIED key={key} tried={hwid}")
         return web.json_response({"status": "denied", "msg": "Esta key pertenece a otro PC"})
 
-
+    # Ya tiene Discord configurado → OK
     if entry.get("discord_name") and not entry.get("awaiting_discord"):
         keys[key]["last_used"] = now
         keys[key]["use_count"] += 1
         save_keys(keys)
         return web.json_response({"status": "ok", "discord": entry["discord_name"]})
 
-
+    # HWID correcto pero falta Discord
     return web.json_response({
         "status": "need_discord",
         "msg": "Ingresa tu nombre de Discord para continuar."
@@ -363,15 +390,15 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
     if entry.get("hwid") != hwid:
         return web.json_response({"status": "denied"})
 
-
-      if discord_name.lower() in bl:
+    # Verificar blacklist
+    if discord_name.lower() in bl:
         print(f"[AUTH] BLACKLISTED discord={discord_name} key={key}")
         return web.json_response({
             "status": "blacklisted",
             "msg": "Tu nombre de Discord está en la blacklist de EZ4STRAP."
         })
 
-
+    # Verificar nombre duplicado en otras keys
     duplicate_key = None
     for k, v in keys.items():
         if not isinstance(v, dict):
@@ -383,7 +410,7 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
                 break
 
     if duplicate_key:
-
+        # Auto-blacklist
         bl[discord_name.lower()] = {
             "original_name": discord_name,
             "reason": "nombre duplicado detectado automaticamente",
@@ -392,7 +419,7 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
         }
         save_blacklist(bl)
 
-
+        # Notificar en Discord
         channel = bot.get_channel(ADMIN_CHANNEL)
         if channel:
             embed = discord.Embed(title="🚨 NOMBRE DUPLICADO DETECTADO → AUTO-BLACKLIST", color=0xff0000)
@@ -408,7 +435,7 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
             "msg": "Nombre duplicado. Agregado a la blacklist de EZ4STRAP."
         })
 
-
+    # Guardar nombre de Discord
     keys[key]["discord_name"] = discord_name
     keys[key]["discord_set_at"] = now
     keys[key]["awaiting_discord"] = False
@@ -416,7 +443,7 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
     keys[key]["use_count"] += 1
     save_keys(keys)
 
-
+    # Notificar en Discord
     channel = bot.get_channel(ADMIN_CHANNEL)
     if channel:
         embed = discord.Embed(title="✅ Key Activada Completamente", color=0x00ff88)
@@ -428,7 +455,9 @@ async def handle_auth_discord(request: web.Request) -> web.Response:
     print(f"[AUTH] DISCORD SET key={key} discord={discord_name}")
     return web.json_response({"status": "ok", "discord": discord_name})
 
-
+# ============================================================
+# Middleware: captura errores 500 y los loguea
+# ============================================================
 @web.middleware
 async def error_middleware(request, handler):
     try:
@@ -452,7 +481,7 @@ async def start_http_server():
 async def on_ready():
     print(f"[BOT] Conectado como {bot.user} (ID: {bot.user.id})")
 
-
+    # Publicar anuncio de blacklist en el canal de admin
     channel = bot.get_channel(ADMIN_CHANNEL)
     if channel:
         embed = discord.Embed(
@@ -471,15 +500,17 @@ async def on_ready():
         embed.set_footer(text="EZ4STRAP Security System · Respeta las reglas")
         await channel.send(embed=embed)
 
-
+# ============================================================
+# FIX CRITICO: Mantener el proceso vivo
+# ============================================================
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-
+    # Iniciar el servidor HTTP
     loop.run_until_complete(start_http_server())
 
-
+    # Iniciar el bot (esto bloquea el loop y mantiene el proceso vivo)
     try:
         loop.run_until_complete(bot.start(BOT_TOKEN))
     except KeyboardInterrupt:
